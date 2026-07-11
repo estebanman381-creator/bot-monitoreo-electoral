@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Monitoreo Electoral - Panel de Control</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f6f9;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+        .card {
+            background: #fff;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            margin-bottom: 25px;
+        }
+        h1 {
+            color: #1e3a8a;
+            margin-top: 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        h2 {
+            color: #1e3a8a;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 8px;
+            margin-top: 0;
+        }
+        .refresh-btn {
+            background-color: #2563eb;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 14px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .refresh-btn:hover {
+            background-color: #1d4ed8;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        th {
+            background-color: #f8fafc;
+            color: #1e3a8a;
+            font-weight: bold;
+            text-transform: capitalize;
+        }
+        tr:hover {
+            background-color: #f1f5f9;
+        }
+        .no-data {
+            text-align: center;
+            color: #64748b;
+            padding: 30px;
+            font-style: italic;
+        }
+        .badge-incidencia {
+            background-color: #fee2e2;
+            color: #991b1b;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card" style="background: #1e3a8a; color: white;">
+            <h1 style="color: white; margin: 0;">
+                📊 Panel de Monitoreo Electoral en Tiempo Real
+                <button class="refresh-btn" style="background: white; color: #1e3a8a; font-weight: bold;" onclick="window.location.reload();">🔄 Actualizar Tablas</button>
+            </h1>
+        </div>
+
+        <!-- SECCIÓN 1: REPORTES DE VOTOS -->
+        <div class="card">
+            <h2>📈 Reportes de Votación Recibidos</h2>
+            <table>
+                <thead>
+                    <tr>
+                        {% if reportes and reportes[0] %}
+                            {% for columna in reportes[0].keys() %}
+                                <th>{{ columna }}</th>
+                            {% endfor %}
+                        {% else %}
+                            <th>Datos</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for fila in reportes %}
+                    <tr>
+                        {% for valor in fila.values() %}
+                            <td>{{ valor }}</td>
+                        {% endfor %}
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td class="no-data">Aún no se han recibido reportes de votación numéricos.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <!-- SECCIÓN 2: OTROS MOTIVOS / INCIDENCIAS -->
+        <div class="card">
+            <h2>⚠️ Avisos e Incidencias de Fiscales (Otro Motivo)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        {% if incidencias and incidencias[0] %}
+                            {% for columna in incidencias[0].keys() %}
+                                <th>{{ columna }}</th>
+                            {% endfor %}
+                        {% else %}
+                            <th>Fecha y Hora</th>
+                            <th>Fiscal / Teléfono</th>
+                            <th>Mensaje / Alerta</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for fila in incidencias %}
+                    <tr>
+                        {% for valor in fila.values() %}
+                            <td>{{ valor }}</td>
+                        {% endfor %}
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="3" class="no-data">No hay alertas ni incidencias reportadas por el momento.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>
