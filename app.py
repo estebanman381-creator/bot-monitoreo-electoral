@@ -35,91 +35,99 @@ def guardar_en_excel(telefono, tipo, escuela_mesa="-", corte="-", votos="-", obs
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    # Obtener el número de teléfono del fiscal y el mensaje que envió
-    telefono = request.values.get("From", "")
-    mensaje_recibido = request.values.get("Body", "").strip().lower()
-    
-    response = MessagingResponse()
-    
-    # Si el usuario es nuevo o dice 'hola', reiniciamos su estado al menú principal
-    if telefono not in estados_usuarios or mensaje_recibido in ["hola", "buen dia", "buenas", "inicio", "reinicio"]:
-        estados_usuarios[telefono] = {"estado": "MENU_PRINCIPAL", "datos": {}}
+    try:
+        # Obtener el número de teléfono del fiscal y el mensaje que envió
+        telefono = request.values.get("From", "")
+        mensaje_recibido = request.values.get("Body", "").strip().lower()
         
-        msg = (
-            "¡Hola! Bienvenido al Sistema de Monitoreo Electoral 🗳️.\n\n"
-            "Por favor, selecciona una opción enviando el número:\n"
-            "1️⃣ Votantes hasta el momento\n"
-            "2️⃣ Otro motivo (Reportar incidente / Aviso)"
-        )
-        response.message(msg)
+        response = MessagingResponse()
+        
+        # Si el usuario es nuevo o dice 'hola', reiniciamos su estado al menú principal
+        if telefono not in estados_usuarios or mensaje_recibido in ["hola", "buen dia", "buenas", "inicio", "reinicio"]:
+            estados_usuarios[telefono] = {"estado": "MENU_PRINCIPAL", "datos": {}}
+            
+            msg = (
+                "¡Hola! Bienvenido al Sistema de Monitoreo Electoral 🗳️.\n\n"
+                "Por favor, selecciona una opción enviando el número:\n"
+                "1️⃣ Votantes hasta el momento\n"
+                "2️⃣ Otro motivo (Reportar incidente / Aviso)"
+            )
+            response.message(msg)
+            return str(response)
+
+        # Obtenemos el estado actual de este fiscal específico
+        estado_actual = estados_usuarios[telefono]["estado"]
+
+        # --- LÓGICA DE LA MÁQUINA DE ESTADOS ---
+        
+        if estado_actual == "MENU_PRINCIPAL":
+            if mensaje_recibido == "1":
+                estados_usuarios[telefono]["estado"] = "SELECCION_HORARIO"
+                msg = (
+                    "Seleccionaste: *Votantes hasta el momento*.\n\n"
+                    "Elige el corte horario enviando el número correspondiente:\n"
+                    "1️⃣ 11:00 hs\n"
+                    "2️⃣ 15:00 hs\n"
+                    "3️⃣ 18:00 hs"
+                )
+                response.message(msg)
+            elif mensaje_recibido == "2":
+                estados_usuarios[telefono]["estado"] = "ESPERANDO_INCIDENTE"
+                msg = "Por favor, escribe detalladamente el motivo de tu aviso o el incidente que deseas reportar:"
+                response.message(msg)
+            else:
+                response.message("Opción inválida. Por favor, envía *1* o *2*.")
+
+        elif estado_actual == "ESPERANDO_INCIDENTE":
+            # Guardamos el incidente reportado en el Excel
+            guardar_en_excel(telefono=telefono, tipo="INCIDENTE", obs=request.values.get("Body"))
+            # Limpiamos el estado del usuario
+            estados_usuarios[telefono] = {"estado": "MENU_PRINCIPAL", "datos": {}}
+            response.message("✅ Tu reporte ha sido enviado al centro de cómputos. Muchas gracias por informar. Si necesitas algo más, vuelve a escribir 'Hola'.")
+
+        elif estado_actual == "SELECCION_HORARIO":
+            horarios = {"1": "11:00 hs", "2": "15:00 hs", "3": "18:00 hs"}
+            if mensaje_recibido in horarios:
+                estados_usuarios[telefono]["datos"]["horario"] = horarios[mensaje_recibido]
+                estados_usuarios[telefono]["estado"] = "ESPERANDO_MESA"
+                response.message("Perfecto. Ahora ingresa tu *Número de Mesa* (ej. 45 o Mesa 45):")
+            else:
+                response.message("Opción inválida. Elige enviando *1*, *2* o *3*.")
+
+        elif estado_actual == "ESPERANDO_MESA":
+            # Guardamos la mesa que escribió el fiscal
+            estados_usuarios[telefono]["datos"]["mesa"] = request.values.get("Body").strip()
+            estados_usuarios[telefono]["estado"] = "ESPERANDO_VOTOS"
+            response.message("¡Entendido! Finalmente, ingresa la *Cantidad Total de Votantes* acumulados hasta este horario (solo números):")
+
+        elif estado_actual == "ESPERANDO_VOTOS":
+            if mensaje_recibido.isdigit():
+                votos = int(mensaje_recibido)
+                datos_fiscal = estados_usuarios[telefono]["datos"]
+                
+                # Guardamos todo el reporte estructurado en el Excel
+                guardar_en_excel(
+                    telefono=telefono,
+                    tipo="VOTOS_CORTE",
+                    escuela_mesa=datos_fiscal["mesa"],
+                    corte=datos_fiscal["horario"],
+                    votos=votos
+                )
+                
+                # Reiniciamos su estado por si quiere mandar otro reporte más tarde
+                estados_usuarios[telefono] = {"estado": "MENU_PRINCIPAL", "datos": {}}
+                response.message(f"✅ ¡Datos guardados con éxito!\n\nMesa: {datos_fiscal['mesa']}\nCorte: {datos_fiscal['horario']}\nVotos: {votos}\n\nMuchas gracias por tu reporte. Si deseas realizar otra acción, escribe 'Hola'.")
+            else:
+                response.message("Por favor, introduce una cantidad válida usando solo números enteros (ej: 142).")
+
         return str(response)
 
-    # Obtenemos el estado actual de este fiscal específico
-    estado_actual = estados_usuarios[telefono]["estado"]
-
-    # --- LÓGICA DE LA MÁQUINA DE ESTADOS ---
-    
-    if estado_actual == "MENU_PRINCIPAL":
-        if mensaje_recibido == "1":
-            estados_usuarios[telefono]["estado"] = "SELECCION_HORARIO"
-            msg = (
-                "Seleccionaste: *Votantes hasta el momento*.\n\n"
-                "Elige el corte horario enviando el número correspondiente:\n"
-                "1️⃣ 11:00 hs\n"
-                "2️⃣ 15:00 hs\n"
-                "3️⃣ 18:00 hs"
-            )
-            response.message(msg)
-        elif mensaje_recibido == "2":
-            estados_usuarios[telefono]["estado"] = "ESPERANDO_INCIDENTE"
-            msg = "Por favor, escribe detalladamente el motivo de tu aviso o el incidente que deseas reportar:"
-            response.message(msg)
-        else:
-            response.message("Opción inválida. Por favor, envía *1* o *2*.")
-
-    elif estado_actual == "ESPERANDO_INCIDENTE":
-        # Guardamos el incidente reportado en el Excel
-        guardar_en_excel(telefono=telefono, tipo="INCIDENTE", obs=request.values.get("Body"))
-        # Limpiamos el estado del usuario
-        estados_usuarios[telefono] = {"estado": "MENU_PRINCIPAL", "datos": {}}
-        response.message("✅ Tu reporte ha sido enviado al centro de cómputos. Muchas gracias por informar. Si necesitas algo más, vuelve a escribir 'Hola'.")
-
-    elif estado_actual == "SELECCION_HORARIO":
-        horarios = {"1": "11:00 hs", "2": "15:00 hs", "3": "18:00 hs"}
-        if mensaje_recibido in horarios:
-            estados_usuarios[telefono]["datos"]["horario"] = horarios[mensaje_recibido]
-            estados_usuarios[telefono]["estado"] = "ESPERANDO_MESA"
-            response.message("Perfecto. Ahora ingresa tu *Número de Mesa* (ej. 45 o Mesa 45):")
-        else:
-            response.message("Opción inválida. Elige enviando *1*, *2* o *3*.")
-
-    elif estado_actual == "ESPERANDO_MESA":
-        # Guardamos la mesa que escribió el fiscal
-        estados_usuarios[telefono]["datos"]["mesa"] = request.values.get("Body").strip()
-        estados_usuarios[telefono]["estado"] = "ESPERANDO_VOTOS"
-        response.message("¡Entendido! Finalmente, ingresa la *Cantidad Total de Votantes* acumulados hasta este horario (solo números):")
-
-    elif estado_actual == "ESPERANDO_VOTOS":
-        if mensaje_recibido.isdigit():
-            votos = int(mensaje_recibido)
-            datos_fiscal = estados_usuarios[telefono]["datos"]
-            
-            # Guardamos todo el reporte estructurado en el Excel
-            guardar_en_excel(
-                telefono=telefono,
-                tipo="VOTOS_CORTE",
-                escuela_mesa=datos_fiscal["mesa"],
-                corte=datos_fiscal["horario"],
-                votos=votos
-            )
-            
-            # Reiniciamos su estado por si quiere mandar otro reporte más tarde
-            estados_usuarios[telefono] = {"estado": "MENU_PRINCIPAL", "datos": {}}
-            response.message(f"✅ ¡Datos guardados con éxito!\n\nMesa: {datos_fiscal['mesa']}\nCorte: {datos_fiscal['horario']}\nVotos: {votos}\n\nMuchas gracias por tu reporte. Si deseas realizar otra acción, escribe 'Hola'.")
-        else:
-            response.message("Por favor, introduce una cantidad válida usando solo números enteros (ej: 142).")
-
-    return str(response)
+    except Exception as e:
+        # Esto atrapa cualquier error, lo imprime en la consola de Render y te avisa por WhatsApp
+        print(f"🔴 ERROR EN WEBHOOK: {e}")
+        error_response = MessagingResponse()
+        error_response.message(f"Hubo un error interno en el bot: {e}")
+        return str(error_response)
 
 @app.route("/", methods=["GET"])
 def dashboard():
