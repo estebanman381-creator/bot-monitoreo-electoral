@@ -152,5 +152,7 @@ def dashboard():
     return render_template("dashboard.html", reportes=reportes, incidencias=incidencias)
 
 if __name__ == "__main__":
-    # Corremos en el puerto 8080 para evitar colisiones con tus proyectos viejos
-    app.run(port=8080, debug=True)
+    # Render asigna un puerto automáticamente en la variable de entorno PORT
+    puerto = int(os.environ.get("PORT", 8080))
+    # Escuchamos en 0.0.0.0 para que Render pueda comunicarse con la app
+    app.run(host="0.0.0.0", port=puerto)
