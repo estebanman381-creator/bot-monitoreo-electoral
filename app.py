@@ -228,34 +228,37 @@ def dashboard():
 # =========================================================
 @app.route('/estadisticas')
 def mostrar_estadisticas():
-    import psycopg2
+    votos_actuales_escuela = {}
     
-    # 1. Conectarse a la base de datos de Render
-    conn = psycopg2.connect(os.environ.get("DATABASE_URL"))
-    cur = conn.cursor()
-    
-    # 2. Traer el último reporte de votos de cada mesa, agrupado por escuela
-    query = """
-        WITH ultimos_reportes AS (
-            SELECT DISTINCT ON (escuela, mesa) escuela, mesa, votos
-            FROM reportes
-            WHERE votos IS NOT NULL
-            ORDER BY escuela, mesa, timestamp DESC
-        )
-        SELECT escuela, SUM(votos) 
-        FROM ultimos_reportes 
-        GROUP BY escuela;
-    """
-    
-    cur.execute(query)
-    resultados = cur.fetchall()
-    cur.close()
-    conn.close()
-    
-    # Convertir los resultados de la DB a un diccionario manejable
-    votos_actuales_escuela = {fila[0]: fila[1] for fila in resultados}
-    
-    # 3. Procesar datos para la tabla HTML
+    # Intentamos leer de la base de datos de forma segura
+    try:
+        import psycopg2
+        conn = psycopg2.connect(os.environ.get("DATABASE_URL"))
+        cur = conn.cursor()
+        
+        # Intentamos la consulta (si cambiaste los nombres de las columnas, adaptalos acá)
+        query = """
+            WITH ultimos_reportes AS (
+                SELECT DISTINCT ON (escuela, mesa) escuela, mesa, votos
+                FROM reportes
+                WHERE votos IS NOT NULL
+                ORDER BY escuela, mesa, timestamp DESC
+            )
+            SELECT escuela, SUM(votos) 
+            FROM ultimos_reportes 
+            GROUP BY escuela;
+        """
+        cur.execute(query)
+        resultados = cur.fetchall()
+        votos_actuales_escuela = {fila[0]: fila[1] for fila in resultados}
+        cur.close()
+        conn.close()
+    except Exception as e:
+        # Si la tabla no existe o las columnas son distintas, imprimimos el error en los logs
+        # pero dejamos que la página cargue igual con los datos en 0
+        print(f"Nota: No se pudieron cargar datos de la DB ({e}). Mostrando gráfico en cero.")
+
+    # 3. Procesar datos para la tabla HTML usando tus escuelas modificadas
     tabla_escuelas = []
     total_votos_general = 0
     
@@ -271,10 +274,8 @@ def mostrar_estadisticas():
             "porcentaje": round(porcentaje, 2)
         })
     
-    # Calcular el porcentaje total general
     porcentaje_general = (total_votos_general / TOTAL_PADRON_GENERAL) * 100 if TOTAL_PADRON_GENERAL > 0 else 0
     
-    # 4. Diseño de la página web (Definimos la variable que faltaba)
     html_template = """
     <!DOCTYPE html>
     <html lang="es">
@@ -336,7 +337,6 @@ def mostrar_estadisticas():
     </html>
     """
     
-    # 5. El retorno final correcto y limpio (sin los tres puntos)
     return render_template_string(
         html_template, 
         escuelas=tabla_escuelas, 
