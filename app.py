@@ -228,8 +228,122 @@ def dashboard():
 # =========================================================
 @app.route('/estadisticas')
 def mostrar_estadisticas():
-    # ... Pegá acá adentro TODA la función de estadísticas que te pasé antes ...
-    return render_template_string(html_template, ...)
+    import psycopg2
+    
+    # 1. Conectarse a la base de datos de Render
+    conn = psycopg2.connect(os.environ.get("DATABASE_URL"))
+    cur = conn.cursor()
+    
+    # 2. Traer el último reporte de votos de cada mesa, agrupado por escuela
+    query = """
+        WITH ultimos_reportes AS (
+            SELECT DISTINCT ON (escuela, mesa) escuela, mesa, votos
+            FROM reportes
+            WHERE votos IS NOT NULL
+            ORDER BY escuela, mesa, timestamp DESC
+        )
+        SELECT escuela, SUM(votos) 
+        FROM ultimos_reportes 
+        GROUP BY escuela;
+    """
+    
+    cur.execute(query)
+    resultados = cur.fetchall()
+    cur.close()
+    conn.close()
+    
+    # Convertir los resultados de la DB a un diccionario manejable
+    votos_actuales_escuela = {fila[0]: fila[1] for fila in resultados}
+    
+    # 3. Procesar datos para la tabla HTML
+    tabla_escuelas = []
+    total_votos_general = 0
+    
+    for escuela, padron in PADRON_POR_ESCUELA.items():
+        votes = votos_actuales_escuela.get(escuela, 0)
+        total_votos_general += votes
+        porcentaje = (votes / padron) * 100 if padron > 0 else 0
+        
+        tabla_escuelas.append({
+            "nombre": escuela,
+            "votos": votes,
+            "padron": padron,
+            "porcentaje": round(porcentaje, 2)
+        })
+    
+    # Calcular el porcentaje total general
+    porcentaje_general = (total_votos_general / TOTAL_PADRON_GENERAL) * 100 if TOTAL_PADRON_GENERAL > 0 else 0
+    
+    # 4. Diseño de la página web (Definimos la variable que faltaba)
+    html_template = """
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Monitoreo Electoral - Porcentajes de Participación</title>
+        <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f9; margin: 0; padding: 20px; color: #333; }
+            .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+            h1 { text-align: center; color: #1e3a8a; margin-bottom: 30px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd; }
+            th { background-color: #1e3a8a; color: white; }
+            tr:hover { background-color: #f1f5f9; }
+            .total-row { font-weight: bold; background-color: #e2e8f0; }
+            .progress-bar-bg { background-color: #e2e8f0; border-radius: 8px; width: 100px; height: 12px; display: inline-block; vertical-align: middle; margin-right: 8px; overflow: hidden; }
+            .progress-bar-fill { background-color: #3b82f6; height: 100%; border-radius: 8px; }
+            .porcentaje-texto { font-weight: bold; color: #1e3a8a; display: inline-block; width: 50px; text-align: right; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>📊 Participación Electoral en Tiempo Real</h1>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Escuela</th>
+                        <th>Votaron</th>
+                        <th>Padrón Total</th>
+                        <th>Porcentaje de Avance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for e in escuelas %}
+                    <tr>
+                        <td>{{ e.nombre }}</td>
+                        <td>{{ e.votos }}</td>
+                        <td>{{ e.padron }}</td>
+                        <td>
+                            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: {{ e.porcentaje }}%"></div></div>
+                            <span class="porcentaje-texto">{{ e.porcentaje }}%</span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    <tr class="total-row">
+                        <td>TOTAL GENERAL</td>
+                        <td>{{ total_votos }}</td>
+                        <td>{{ total_padron }}</td>
+                        <td>
+                            <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: {{ total_porcentaje }}%; background-color: #10b981;"></div></div>
+                            <span class="porcentaje-texto">{{ total_porcentaje }}%</span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </body>
+    </html>
+    """
+    
+    # 5. El retorno final correcto y limpio (sin los tres puntos)
+    return render_template_string(
+        html_template, 
+        escuelas=tabla_escuelas, 
+        total_votos=total_votos_general, 
+        total_padron=TOTAL_PADRON_GENERAL, 
+        total_porcentaje=round(porcentaje_general, 2)
+    )
 
 
 # El cierre clásico de tu archivo queda abajo de todo:
