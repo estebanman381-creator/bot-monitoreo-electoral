@@ -42,12 +42,36 @@ app = Flask(__name__)
 
 # 📊 CONFIGURACIÓN DEL PADRÓN ELECTORAL
 PADRON_POR_ESCUELA = {
-    "Escuela Nacional": 3500,
-    "Colegio San Ignacio": 2800,
-    "Escuela Patria": 4200,
-    "Escuela Centro": 1500,
+    "Escuela Patria": 3500,
+    "Escuela Centro": 2800,
+    "Escuela Nacional": 4200,
+    "Colegio San Ignacio": 1500,
     "Colegio Virgen de Loreto": 3100
 }
+
+def obtener_escuela_por_mesa(numero_mesa):
+    # Convertimos a entero por las dudas de que venga como texto
+    try:
+        mesa_int = int(numero_mesa)
+    except:
+        return None
+        
+    for escuela, lista_mesas in MESAS_POR_ESCUELA.items():
+        if mesa_int in lista_mesas:
+            return escuela
+            
+    return None # Si la mesa no está en ninguna lista, devuelve None
+
+# 🏫 ASIGNACIÓN DE MESAS POR ESCUELA
+# Poné los números de las mesas separados por comas adentro de cada lista []
+MESAS_POR_ESCUELA = {
+    "Escuela Patria": [1240, 1241, 1242, 1243, 1244, 1245, 1246, 1247, 1248],
+    "Escuela Centro": [1249, 1250, 1251, 1252, 1253, 1254, 1255, 1256],
+    "Escuela Nacional": [1257, 1258, 1259, 1260, 1261, 1262, 1263, 1264],
+    "Colegio San Ignacio": [1265, 1266, 1267, 1268, 1269, 1270, 1271, 1272],
+    "Colegio Virgen de Loreto": [1273, 1274, 1275, 1276, 1277, 1278, 1279, 1280]
+}
+
 TOTAL_PADRON_GENERAL = sum(PADRON_POR_ESCUELA.values())
 
 # Base de datos temporal en memoria para rastrear el estado de cada fiscal
@@ -96,6 +120,8 @@ def guardar_en_excel(telefono, tipo, escuela_mesa="-", corte="-", votos="-", obs
     except Exception as e:
         print(f"🔴 Error al guardar en PostgreSQL: {e}")
         raise e
+
+import re # Asegurate de tener este import arriba en tu archivo si no lo tenías
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -159,35 +185,49 @@ def webhook():
                 response.message("Opción inválida. Elige enviando *1*, *2* o *3*.")
 
         elif estado_actual == "ESPERANDO_MESA":
-            # Guardamos la mesa que escribió el fiscal
-            estados_usuarios[telefono]["datos"]["mesa"] = request.values.get("Body").strip()
-            estados_usuarios[telefono]["estado"] = "ESPERANDO_VOTOS"
-            response.message("¡Entendido! Finalmente, ingresa la *Cantidad Total de Votantes* acumulados hasta este horario (solo números):")
+            texto_mesa = request.values.get("Body").strip()
+            # Extraemos solo los números del mensaje recibido (ej: "Mesa 45" -> "45")
+            numeros_encontrados = re.findall(r'\d+', texto_mesa)
+            
+            if numeros_encontrados:
+                numero_mesa = numeros_encontrados[0]
+                # Buscamos la escuela correspondiente de forma automática
+                escuela_detectada = obtener_escuela_por_mesa(numero_mesa)
+                
+                if escuela_detectada:
+                    estados_usuarios[telefono]["datos"]["mesa"] = numero_mesa
+                    estados_usuarios[telefono]["datos"]["escuela"] = escuela_detectada
+                    estados_usuarios[telefono]["estado"] = "ESPERANDO_VOTOS"
+                    response.message(f"📍 Detectado: *{escuela_detectada}* (Mesa {numero_mesa}).\n\nFinalmente, ingresa la *Cantidad Total de Votantes* acumulados hasta este horario (solo números):")
+                else:
+                    response.message(f"⚠️ El número de mesa *{numero_mesa}* no está asignado a ninguna escuela del padrón. Por favor, verifícalo e ingrésalo nuevamente:")
+            else:
+                response.message("No logré identificar un número de mesa válido. Por favor, ingresa el número (ej: 45):")
 
         elif estado_actual == "ESPERANDO_VOTOS":
             if mensaje_recibido.isdigit():
                 votos = int(mensaje_recibido)
                 datos_fiscal = estados_usuarios[telefono]["datos"]
                 
-                # Guardamos todo el reporte estructurado en el Excel
+                # Guardamos todo el reporte estructurado incluyendo el nuevo dato de la Escuela
                 guardar_en_excel(
                     telefono=telefono,
                     tipo="VOTOS_CORTE",
                     escuela_mesa=datos_fiscal["mesa"],
                     corte=datos_fiscal["horario"],
-                    votos=votos
+                    votos=votos,
+                    escuela=datos_fiscal["escuela"] # Le pasamos el nombre limpio de la escuela
                 )
                 
                 # Reiniciamos su estado por si quiere mandar otro reporte más tarde
                 estados_usuarios[telefono] = {"estado": "MENU_PRINCIPAL", "datos": {}}
-                response.message(f"✅ ¡Datos guardados con éxito!\n\nMesa: {datos_fiscal['mesa']}\nCorte: {datos_fiscal['horario']}\nVotos: {votos}\n\nMuchas gracias por tu reporte. Si deseas realizar otra acción, escribe 'Hola'.")
+                response.message(f"✅ ¡Datos guardados con éxito!\n\n🏫 Escuela: {datos_fiscal['escuela']}\n🗳️ Mesa: {datos_fiscal['mesa']}\n⏰ Corte: {datos_fiscal['horario']}\n📊 Votos: {votos}\n\nMuchas gracias por tu reporte. Si deseas realizar otra acción, escribe 'Hola'.")
             else:
                 response.message("Por favor, introduce una cantidad válida usando solo números enteros (ej: 142).")
 
         return str(response)
 
     except Exception as e:
-        # Esto atrapa cualquier error, lo imprime en la consola de Render y te avisa por WhatsApp
         print(f"🔴 ERROR EN WEBHOOK: {e}")
         error_response = MessagingResponse()
         error_response.message(f"Hubo un error interno en el bot: {e}")
