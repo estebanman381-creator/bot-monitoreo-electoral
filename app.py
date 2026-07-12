@@ -5,6 +5,7 @@ from datetime import datetime
 import os
 import psycopg2
 from datetime import datetime
+from flask import Response
 
 # --- COLOCAR ESTO ANTES DE app = Flask(__name__) ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -132,13 +133,15 @@ def guardar_en_excel(telefono, tipo, escuela_mesa="-", corte="-", votos="-", obs
         print(f"🔴 Error al guardar en PostgreSQL: {e}")
         # Al quitar el 'raise e' evitamos que el bot deje de responder si algo falla con la base de datos
 
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
         telefono = request.values.get("From", "")
         mensaje_recibido = request.values.get("Body", "").strip().lower()
         
-        print(f"📥 MENSAJE RECIBIDO - Teléfono: {telefono} | Mensaje: {mensaje_recibido}")
+        # Le agregamos flush=True a los prints para que Render los muestre obligatoriamente al instante
+        print(f"📥 MENSAJE RECIBIDO - Teléfono: {telefono} | Mensaje: {mensaje_recibido}", flush=True)
         
         response = MessagingResponse()
         
@@ -151,12 +154,14 @@ def webhook():
                 "2️⃣ Otro motivo (Reportar incidente / Aviso)"
             )
             response.message(msg)
-            print("📤 Respondiendo con Menú Principal")
-            return str(response)
+            print("📤 Respondiendo con Menú Principal", flush=True)
+            # ACÁ ESTÁ LA MAGIA: Forzamos a que la respuesta sea estrictamente XML
+            return Response(str(response), mimetype='text/xml')
 
         estado_actual = estados_usuarios[telefono]["estado"]
-        print(f"🔄 Estado actual del usuario: {estado_actual}")
+        print(f"🔄 Estado actual: {estado_actual}", flush=True)
 
+        # --- LÓGICA DE LA MÁQUINA DE ESTADOS ---
         if estado_actual == "MENU_PRINCIPAL":
             if mensaje_recibido == "1":
                 estados_usuarios[telefono]["estado"] = "SELECCION_HORARIO"
@@ -170,8 +175,7 @@ def webhook():
                 response.message(msg)
             elif mensaje_recibido == "2":
                 estados_usuarios[telefono]["estado"] = "ESPERANDO_INCIDENTE"
-                msg = "Por favor, escribe detalladamente el motivo de tu aviso o el incidente que deseas reportar:"
-                response.message(msg)
+                response.message("Por favor, escribe detalladamente el motivo de tu aviso o el incidente que deseas reportar:")
             else:
                 response.message("Opción inválida. Por favor, envía *1* o *2*.")
 
@@ -195,17 +199,17 @@ def webhook():
             
             if numeros_encontrados:
                 numero_mesa = numeros_encontrados[0]
-                print(f"🔎 Buscando escuela para la mesa: {numero_mesa}")
+                print(f"🔎 Buscando escuela para la mesa: {numero_mesa}", flush=True)
                 escuela_detectada = obtener_escuela_por_mesa(numero_mesa)
                 
                 if escuela_detectada:
-                    print(f"🏫 Escuela detectada con éxito: {escuela_detectada}")
+                    print(f"🏫 Escuela detectada: {escuela_detectada}", flush=True)
                     estados_usuarios[telefono]["datos"]["mesa"] = numero_mesa
                     estados_usuarios[telefono]["datos"]["escuela"] = escuela_detectada
                     estados_usuarios[telefono]["estado"] = "ESPERANDO_VOTOS"
                     response.message(f"📍 Detectado: *{escuela_detectada}* (Mesa {numero_mesa}).\n\nFinalmente, ingresa la *Cantidad Total de Votantes* acumulados hasta este horario (solo números):")
                 else:
-                    print(f"⚠️ Mesa {numero_mesa} no encontrada en el mapa de escuelas.")
+                    print(f"⚠️ Mesa {numero_mesa} no encontrada.", flush=True)
                     response.message(f"⚠️ El número de mesa *{numero_mesa}* no está asignado a ninguna escuela del padrón. Por favor, verifícalo e ingrésalo nuevamente:")
             else:
                 response.message("No logré identificar un número de mesa válido. Por favor, ingresa el número (ej: 45):")
@@ -215,7 +219,7 @@ def webhook():
                 votos = int(mensaje_recibido)
                 datos_fiscal = estados_usuarios[telefono]["datos"]
                 
-                print(f"💾 Intentando guardar votos. Mesa: {datos_fiscal['mesa']}, Escuela: {datos_fiscal['escuela']}, Votos: {votos}")
+                print(f"💾 Guardando votos. Mesa: {datos_fiscal['mesa']}, Escuela: {datos_fiscal['escuela']}, Votos: {votos}", flush=True)
                 
                 guardar_en_excel(
                     telefono=telefono,
@@ -231,14 +235,15 @@ def webhook():
             else:
                 response.message("Por favor, introduce una cantidad válida usando solo números enteros (ej: 142).")
 
-        print(f"📤 Respuesta XML enviada a Twilio: {str(response)}")
-        return str(response)
+        print("📤 Enviando XML a Twilio...", flush=True)
+        # ACÁ ESTÁ LA OTRA MAGIA: Devolvemos siempre formato XML
+        return Response(str(response), mimetype='text/xml')
 
     except Exception as e:
-        print(f"🔴 ERROR CRÍTICO EN WEBHOOK: {e}")
+        print(f"🔴 ERROR CRÍTICO EN WEBHOOK: {e}", flush=True)
         error_response = MessagingResponse()
         error_response.message(f"Hubo un error interno en el bot: {e}")
-        return str(error_response)
+        return Response(str(error_response), mimetype='text/xml')
 
 @app.route("/", methods=["GET"])
 def dashboard():
