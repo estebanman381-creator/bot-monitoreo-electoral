@@ -78,15 +78,15 @@ TOTAL_PADRON_GENERAL = sum(PADRON_POR_ESCUELA.values())
 # Estructura: { 'numero_telefono': { 'estado': 'MENU_PRINCIPAL', 'datos': {} } }
 estados_usuarios = {}
 
-# Archivo Excel donde se centralizará todo de forma automática
+# Archivo Excel por si se usa de respaldo (opcional)
 EXCEL_DB = "registro_votos_realtime.xlsx"
 
 # Crear el archivo Excel con sus columnas si no existe al arrancar el bot
 if not os.path.exists(EXCEL_DB):
-    df_init = pd.DataFrame(columns=["Fecha/Hora", "Telefono", "Tipo_Reporte", "Escuela_Mesa", "Corte_Horario", "Cantidad_Votos", "Observaciones"])
+    df_init = pd.DataFrame(columns=["Fecha/Hora", "Telefono", "Tipo_Reporte", "Escuela_Mesa", "Corte_Horario", "Cantidad_Votos", "Observaciones", "Escuela"])
     df_init.to_excel(EXCEL_DB, index=False)
 
-def guardar_en_excel(telefono, tipo, escuela_mesa="-", corte="-", votos="-", obs="-"):
+def guardar_en_excel(telefono, tipo, escuela_mesa="-", corte="-", votos="-", obs="-", escuela="-"):
     """Inserta una nueva fila directamente en la base de datos PostgreSQL de Render"""
     if not DATABASE_URL:
         print("🔴 Error: DATABASE_URL no configurada. No se pudo guardar.")
@@ -96,19 +96,30 @@ def guardar_en_excel(telefono, tipo, escuela_mesa="-", corte="-", votos="-", obs
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
         
+        # Agregamos dinámicamente el manejo de columnas para 'escuela' y 'mesa'
+        # Usamos 'escuela_mesa' para guardar el número de mesa pura (así machea con tu webhook)
         query = """
-            INSERT INTO reportes (fecha_hora, telefono, tipo_reporte, escuela_mesa, corte_horario, cantidad_votos, observaciones)
-            VALUES (%s, %s, %s, %s, %s, %s, %s);
+            INSERT INTO reportes (fecha_hora, telefono, tipo_reporte, escuela_mesa, corte_horario, cantidad_votos, observaciones, escuela, mesa, votos)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
         """
         
+        # Intentamos formatear los votos como número entero para que sume bien en estadísticas
+        try:
+            votos_int = int(votos)
+        except:
+            votos_int = None
+            
         valores = (
             datetime.now(),
             telefono,
             tipo,
-            str(escuela_mesa),
+            str(escuela_mesa), # Guarda el número original ingresado
             str(corte),
             str(votos),
-            str(obs)
+            str(obs),
+            str(escuela),      # Guarda el nombre limpio de la escuela asignada
+            str(escuela_mesa), # Setea la columna 'mesa' para la consulta SQL de estadísticas
+            votos_int          # Setea la columna 'votos' numérico para el SUM() de estadísticas
         )
         
         cur.execute(query, valores)
@@ -119,9 +130,7 @@ def guardar_en_excel(telefono, tipo, escuela_mesa="-", corte="-", votos="-", obs
         
     except Exception as e:
         print(f"🔴 Error al guardar en PostgreSQL: {e}")
-        raise e
-
-import re # Asegurate de tener este import arriba en tu archivo si no lo tenías
+        # Al quitar el 'raise e' evitamos que el bot deje de responder si algo falla con la base de datos
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
