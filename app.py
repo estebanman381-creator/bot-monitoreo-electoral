@@ -1,4 +1,4 @@
-from flask import Flask, request, render_template
+from flask import Flask, request, render_template, render_template_string
 from twilio.twiml.messaging_response import MessagingResponse
 import pandas as pd
 from datetime import datetime
@@ -39,6 +39,16 @@ def inicializar_base_de_datos():
 inicializar_base_de_datos()
 
 app = Flask(__name__)
+
+# 📊 CONFIGURACIÓN DEL PADRÓN ELECTORAL
+PADRON_POR_ESCUELA = {
+    "Escuela Nacional": 3500,
+    "Colegio San Ignacio": 2800,
+    "Escuela Patria": 4200,
+    "Escuela Centro": 1500,
+    "Colegio Virgen de Loreto": 3100
+}
+TOTAL_PADRON_GENERAL = sum(PADRON_POR_ESCUELA.values())
 
 # Base de datos temporal en memoria para rastrear el estado de cada fiscal
 # Estructura: { 'numero_telefono': { 'estado': 'MENU_PRINCIPAL', 'datos': {} } }
@@ -212,6 +222,19 @@ def dashboard():
             print(f"Error al procesar el Excel para el Dashboard: {e}")
             
     return render_template("dashboard.html", reportes=reportes, incidencias=incidencias)
+
+# =========================================================
+# VISTA DE PORCENTAJES EN TIEMPO REAL
+# =========================================================
+@app.route('/estadisticas')
+def mostrar_estadisticas():
+    # ... Pegá acá adentro TODA la función de estadísticas que te pasé antes ...
+    return render_template_string(html_template, ...)
+
+
+# El cierre clásico de tu archivo queda abajo de todo:
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=10000)
 
 if __name__ == "__main__":
     # Render asigna un puerto automáticamente en la variable de entorno PORT
