@@ -135,16 +135,15 @@ def guardar_en_excel(telefono, tipo, escuela_mesa="-", corte="-", votos="-", obs
 @app.route("/webhook", methods=["POST"])
 def webhook():
     try:
-        # Obtener el número de teléfono del fiscal y el mensaje que envió
         telefono = request.values.get("From", "")
         mensaje_recibido = request.values.get("Body", "").strip().lower()
         
+        print(f"📥 MENSAJE RECIBIDO - Teléfono: {telefono} | Mensaje: {mensaje_recibido}")
+        
         response = MessagingResponse()
         
-        # Si el usuario es nuevo o dice 'hola', reiniciamos su estado al menú principal
         if telefono not in estados_usuarios or mensaje_recibido in ["hola", "buen dia", "buenas", "inicio", "reinicio"]:
             estados_usuarios[telefono] = {"estado": "MENU_PRINCIPAL", "datos": {}}
-            
             msg = (
                 "¡Hola! Bienvenido al Sistema de Monitoreo Electoral 🗳️.\n\n"
                 "Por favor, selecciona una opción enviando el número:\n"
@@ -152,13 +151,12 @@ def webhook():
                 "2️⃣ Otro motivo (Reportar incidente / Aviso)"
             )
             response.message(msg)
+            print("📤 Respondiendo con Menú Principal")
             return str(response)
 
-        # Obtenemos el estado actual de este fiscal específico
         estado_actual = estados_usuarios[telefono]["estado"]
+        print(f"🔄 Estado actual del usuario: {estado_actual}")
 
-        # --- LÓGICA DE LA MÁQUINA DE ESTADOS ---
-        
         if estado_actual == "MENU_PRINCIPAL":
             if mensaje_recibido == "1":
                 estados_usuarios[telefono]["estado"] = "SELECCION_HORARIO"
@@ -178,9 +176,7 @@ def webhook():
                 response.message("Opción inválida. Por favor, envía *1* o *2*.")
 
         elif estado_actual == "ESPERANDO_INCIDENTE":
-            # Guardamos el incidente reportado en el Excel
             guardar_en_excel(telefono=telefono, tipo="INCIDENTE", obs=request.values.get("Body"))
-            # Limpiamos el estado del usuario
             estados_usuarios[telefono] = {"estado": "MENU_PRINCIPAL", "datos": {}}
             response.message("✅ Tu reporte ha sido enviado al centro de cómputos. Muchas gracias por informar. Si necesitas algo más, vuelve a escribir 'Hola'.")
 
@@ -195,20 +191,21 @@ def webhook():
 
         elif estado_actual == "ESPERANDO_MESA":
             texto_mesa = request.values.get("Body").strip()
-            # Extraemos solo los números del mensaje recibido (ej: "Mesa 45" -> "45")
             numeros_encontrados = re.findall(r'\d+', texto_mesa)
             
             if numeros_encontrados:
                 numero_mesa = numeros_encontrados[0]
-                # Buscamos la escuela correspondiente de forma automática
+                print(f"🔎 Buscando escuela para la mesa: {numero_mesa}")
                 escuela_detectada = obtener_escuela_por_mesa(numero_mesa)
                 
                 if escuela_detectada:
+                    print(f"🏫 Escuela detectada con éxito: {escuela_detectada}")
                     estados_usuarios[telefono]["datos"]["mesa"] = numero_mesa
                     estados_usuarios[telefono]["datos"]["escuela"] = escuela_detectada
                     estados_usuarios[telefono]["estado"] = "ESPERANDO_VOTOS"
                     response.message(f"📍 Detectado: *{escuela_detectada}* (Mesa {numero_mesa}).\n\nFinalmente, ingresa la *Cantidad Total de Votantes* acumulados hasta este horario (solo números):")
                 else:
+                    print(f"⚠️ Mesa {numero_mesa} no encontrada en el mapa de escuelas.")
                     response.message(f"⚠️ El número de mesa *{numero_mesa}* no está asignado a ninguna escuela del padrón. Por favor, verifícalo e ingrésalo nuevamente:")
             else:
                 response.message("No logré identificar un número de mesa válido. Por favor, ingresa el número (ej: 45):")
@@ -218,26 +215,27 @@ def webhook():
                 votos = int(mensaje_recibido)
                 datos_fiscal = estados_usuarios[telefono]["datos"]
                 
-                # Guardamos todo el reporte estructurado incluyendo el nuevo dato de la Escuela
+                print(f"💾 Intentando guardar votos. Mesa: {datos_fiscal['mesa']}, Escuela: {datos_fiscal['escuela']}, Votos: {votos}")
+                
                 guardar_en_excel(
                     telefono=telefono,
                     tipo="VOTOS_CORTE",
                     escuela_mesa=datos_fiscal["mesa"],
                     corte=datos_fiscal["horario"],
                     votos=votos,
-                    escuela=datos_fiscal["escuela"] # Le pasamos el nombre limpio de la escuela
+                    escuela=datos_fiscal["escuela"]
                 )
                 
-                # Reiniciamos su estado por si quiere mandar otro reporte más tarde
                 estados_usuarios[telefono] = {"estado": "MENU_PRINCIPAL", "datos": {}}
                 response.message(f"✅ ¡Datos guardados con éxito!\n\n🏫 Escuela: {datos_fiscal['escuela']}\n🗳️ Mesa: {datos_fiscal['mesa']}\n⏰ Corte: {datos_fiscal['horario']}\n📊 Votos: {votos}\n\nMuchas gracias por tu reporte. Si deseas realizar otra acción, escribe 'Hola'.")
             else:
                 response.message("Por favor, introduce una cantidad válida usando solo números enteros (ej: 142).")
 
+        print(f"📤 Respuesta XML enviada a Twilio: {str(response)}")
         return str(response)
 
     except Exception as e:
-        print(f"🔴 ERROR EN WEBHOOK: {e}")
+        print(f"🔴 ERROR CRÍTICO EN WEBHOOK: {e}")
         error_response = MessagingResponse()
         error_response.message(f"Hubo un error interno en el bot: {e}")
         return str(error_response)
