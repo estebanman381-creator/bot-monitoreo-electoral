@@ -3,6 +3,40 @@ from twilio.twiml.messaging_response import MessagingResponse
 import pandas as pd
 from datetime import datetime
 import os
+import psycopg2
+from datetime import datetime
+
+# --- COLOCAR ESTO ANTES DE app = Flask(__name__) ---
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+def inicializar_base_de_datos():
+    """Crea la tabla de reportes en PostgreSQL si no existe"""
+    if not DATABASE_URL:
+        print("🔴 No se encontró DATABASE_URL en el entorno.")
+        return
+    
+    conn = psycopg2.connect(DATABASE_URL)
+    cur = conn.cursor()
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS reportes (
+            id SERIAL PRIMARY KEY,
+            fecha_hora TIMESTAMP,
+            telefono VARCHAR(50),
+            tipo_reporte VARCHAR(50),
+            escuela_mesa VARCHAR(100),
+            corte_horario VARCHAR(50),
+            cantidad_votos VARCHAR(50),
+            observaciones TEXT
+        );
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
+    print("🟢 Tabla de base de datos verificada/creada con éxito.")
+
+# Ejecutamos la inicialización al arrancar la app
+inicializar_base_de_datos()
 
 app = Flask(__name__)
 
@@ -19,19 +53,39 @@ if not os.path.exists(EXCEL_DB):
     df_init.to_excel(EXCEL_DB, index=False)
 
 def guardar_en_excel(telefono, tipo, escuela_mesa="-", corte="-", votos="-", obs="-"):
-    """Función auxiliar para añadir una fila al Excel en tiempo real"""
-    nuevo_registro = {
-        "Fecha/Hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "Telefono": telefono,
-        "Tipo_Reporte": tipo,
-        "Escuela_Mesa": escuela_mesa,
-        "Corte_Horario": corte,
-        "Cantidad_Votos": votos,
-        "Observaciones": obs
-    }
-    df = pd.read_excel(EXCEL_DB)
-    df = pd.concat([df, pd.DataFrame([nuevo_registro])], ignore_index=True)
-    df.to_excel(EXCEL_DB, index=False)
+    """Inserta una nueva fila directamente en la base de datos PostgreSQL de Render"""
+    if not DATABASE_URL:
+        print("🔴 Error: DATABASE_URL no configurada. No se pudo guardar.")
+        return
+
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        
+        query = """
+            INSERT INTO reportes (fecha_hora, telefono, tipo_reporte, escuela_mesa, corte_horario, cantidad_votos, observaciones)
+            VALUES (%s, %s, %s, %s, %s, %s, %s);
+        """
+        
+        valores = (
+            datetime.now(),
+            telefono,
+            tipo,
+            str(escuela_mesa),
+            str(corte),
+            str(votos),
+            str(obs)
+        )
+        
+        cur.execute(query, valores)
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("🟢 Registro guardado correctamente en PostgreSQL.")
+        
+    except Exception as e:
+        print(f"🔴 Error al guardar en PostgreSQL: {e}")
+        raise e
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
