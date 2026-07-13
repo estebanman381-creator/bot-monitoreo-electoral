@@ -81,14 +81,34 @@
             font-size: 12px;
             font-weight: bold;
         }
+        /* Estilo para el botón de limpiar */
+        .btn-danger {
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        .btn-danger:hover {
+            background-color: #bb2d3b;
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        <!-- ENCABEZADO CON BOTONES -->
         <div class="card" style="background: #1e3a8a; color: white;">
-            <h1 style="color: white; margin: 0;">
-                📊 Panel de Monitoreo Electoral en Tiempo Real
-                <button class="refresh-btn" style="background: white; color: #1e3a8a; font-weight: bold;" onclick="window.location.reload();">🔄 Actualizar Tablas</button>
+            <h1 style="color: white; margin: 0; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                <span>📊 Panel de Monitoreo Electoral en Tiempo Real</span>
+                <div>
+                    <button class="refresh-btn" style="background: white; color: #1e3a8a; font-weight: bold;" onclick="window.location.reload();">🔄 Actualizar Tablas</button>
+                    <!-- NUEZVO BOTÓN DE LIMPIEZA -->
+                    <button class="btn-danger" onclick="confirmarLimpieza()">⚠️ Limpiar Datos</button>
+                </div>
             </h1>
         </div>
 
@@ -156,5 +176,34 @@
             </table>
         </div>
     </div>
+
+    <!-- LÓGICA DE CONFIRMACIÓN PARA BORRAR LA BASE DE DATOS -->
+    <script>
+    function confirmarLimpieza() {
+        const confirmacion1 = confirm("¿ESTÁS SEGURO? Esto borrará de forma PERMANENTE todos los datos e incidencias ingresadas hasta el momento.");
+        
+        if (confirmacion1) {
+            const confirmacion2 = confirm("¡ALERTA FINAL! Los datos volverán a cero y no se podrán recuperar para el inicio de la elección. ¿Proceder?");
+            
+            if (confirmacion2) {
+                fetch('/limpiar-datos', {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        alert("¡Hecho! La base de datos ha sido limpiada con éxito.");
+                        window.location.reload();
+                    } else {
+                        alert("Hubo un error al limpiar los datos: " + data.message);
+                    }
+                })
+                .catch(error => {
+                    alert("Error de conexión con el servidor: " + error);
+                });
+            }
+        }
+    }
+    </script>
 </body>
 </html>

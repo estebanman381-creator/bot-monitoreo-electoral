@@ -7,6 +7,7 @@ import psycopg2
 from datetime import datetime
 from flask import Response
 import re
+from sqlalchemy import text
 
 # --- COLOCAR ESTO ANTES DE app = Flask(__name__) ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -398,6 +399,17 @@ def mostrar_estadisticas():
         total_porcentaje=round(porcentaje_general, 2)
     )
 
+@app.route('/limpiar-datos', methods=['POST'])
+def limpiar_datos():
+    try:
+        # Reemplaza 'votos' por el nombre exacto de tu tabla de reportes si es diferente
+        # Usamos TRUNCATE porque es la forma más rápida y limpia de vaciar una tabla
+        db.session.execute(text("TRUNCATE TABLE votos RESTART IDENTITY CASCADE;"))
+        db.session.commit()
+        return jsonify({"status": "success", "message": "Base de datos limpiada con éxito"}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 # El cierre clásico de tu archivo queda abajo de todo:
 if __name__ == "__main__":
