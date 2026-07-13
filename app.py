@@ -6,6 +6,7 @@ import os
 import psycopg2
 from datetime import datetime
 from flask import Response
+import re
 
 # --- COLOCAR ESTO ANTES DE app = Flask(__name__) ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
