@@ -8,6 +8,8 @@ from datetime import datetime
 from flask import Response
 import re
 from sqlalchemy import text
+from functools import wraps
+from flask import request, Response
 
 # --- COLOCAR ESTO ANTES DE app = Flask(__name__) ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -42,6 +44,23 @@ def inicializar_base_de_datos():
 inicializar_base_de_datos()
 
 app = Flask(__name__)
+
+
+def check_auth(username, password):
+    # ACÁ DEFINÍ TU USUARIO Y TU CLAVE SECRETA
+    return username == 'admin' and password == 'ELEC26'
+
+def requires_auth(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        auth = request.authorization
+        if not auth or not check_auth(auth.username, auth.password):
+            return Response(
+                'No autorizado. Necesitás credenciales para acceder.', 401,
+                {'WWW-Authenticate': 'Basic realm="Login Required"'}
+            )
+        return f(*args, **kwargs)
+    return decorated
 
 # 📊 CONFIGURACIÓN DEL PADRÓN ELECTORAL
 PADRON_POR_ESCUELA = {
@@ -248,6 +267,7 @@ def webhook():
         return Response(str(error_response), mimetype='text/xml')
 
 @app.route("/", methods=["GET"])
+@requires_auth
 def dashboard():
     reportes = []
     incidencias = []
@@ -281,6 +301,7 @@ def dashboard():
 # VISTA DE PORCENTAJES EN TIEMPO REAL
 # =========================================================
 @app.route('/estadisticas')
+@requires_auth
 def mostrar_estadisticas():
     votos_actuales_escuela = {}
     
