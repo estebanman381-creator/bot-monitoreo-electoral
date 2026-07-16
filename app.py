@@ -6,6 +6,9 @@ from datetime import datetime
 import re
 from functools import wraps
 
+# --- CONFIGURACIÓN DE BASE DE DATOS ---
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
 def migrar_base_de_datos_existente():
     """Agrega las columnas faltantes a la tabla 'reportes' si ya existía de antes"""
     if not DATABASE_URL:
@@ -30,9 +33,6 @@ def migrar_base_de_datos_existente():
 # Ejecutamos primero la migración y luego la inicialización común
 migrar_base_de_datos_existente()
 inicializar_base_de_datos()
-
-# --- CONFIGURACIÓN DE BASE DE DATOS ---
-DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def inicializar_base_de_datos():
     """Crea la tabla de reportes en PostgreSQL si no existe con todas las columnas correctas"""
