@@ -1,21 +1,16 @@
-from flask import Flask, request, render_template, render_template_string
+from flask import Flask, request, render_template, render_template_string, jsonify, Response
 from twilio.twiml.messaging_response import MessagingResponse
-import pandas as pd
-from datetime import datetime
 import os
 import psycopg2
 from datetime import datetime
-from flask import Response
 import re
-from sqlalchemy import text
 from functools import wraps
-from flask import request, Response
 
-# --- COLOCAR ESTO ANTES DE app = Flask(__name__) ---
+# --- CONFIGURACIÓN DE BASE DE DATOS ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def inicializar_base_de_datos():
-    """Crea la tabla de reportes en PostgreSQL si no existe"""
+    """Crea la tabla de reportes en PostgreSQL si no existe con todas las columnas correctas"""
     if not DATABASE_URL:
         print("🔴 No se encontró DATABASE_URL en el entorno.")
         return
@@ -23,6 +18,7 @@ def inicializar_base_de_datos():
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
     
+    # Creamos la tabla asegurándonos de que 'escuela', 'mesa' y 'votos' existan
     cur.execute("""
         CREATE TABLE IF NOT EXISTS reportes (
             id SERIAL PRIMARY KEY,
@@ -32,22 +28,25 @@ def inicializar_base_de_datos():
             escuela_mesa VARCHAR(100),
             corte_horario VARCHAR(50),
             cantidad_votos VARCHAR(50),
-            observaciones TEXT
+            observaciones TEXT,
+            escuela VARCHAR(255),
+            mesa VARCHAR(50),
+            votos INTEGER
         );
     """)
     conn.commit()
     cur.close()
     conn.close()
-    print("🟢 Tabla de base de datos verificada/creada con éxito.")
+    print("🟢 Tabla de base de datos verificada/creada con éxito en PostgreSQL.")
 
 # Ejecutamos la inicialización al arrancar la app
 inicializar_base_de_datos()
 
 app = Flask(__name__)
 
-
+# --- CONTROL DE ACCESO (PASSWORD) ---
 def check_auth(username, password):
-    # ACÁ DEFINÍ TU USUARIO Y TU CLAVE SECRETA
+    # Credenciales de acceso
     return username == 'admin' and password == 'ELEC26'
 
 def requires_auth(f):
@@ -71,21 +70,7 @@ PADRON_POR_ESCUELA = {
     "Colegio Virgen de Loreto": 3100
 }
 
-def obtener_escuela_por_mesa(numero_mesa):
-    # Convertimos a entero por las dudas de que venga como texto
-    try:
-        mesa_int = int(numero_mesa)
-    except:
-        return None
-        
-    for escuela, lista_mesas in MESAS_POR_ESCUELA.items():
-        if mesa_int in lista_mesas:
-            return escuela
-            
-    return None # Si la mesa no está en ninguna lista, devuelve None
-
 # 🏫 ASIGNACIÓN DE MESAS POR ESCUELA
-# Poné los números de las mesas separados por comas adentro de cada lista []
 MESAS_POR_ESCUELA = {
     "Escuela Patria": [1240, 1241, 1242, 1243, 1244, 1245, 1246, 1247, 1248],
     "Escuela Centro": [1249, 1250, 1251, 1252, 1253, 1254, 1255, 1256],
@@ -96,19 +81,22 @@ MESAS_POR_ESCUELA = {
 
 TOTAL_PADRON_GENERAL = sum(PADRON_POR_ESCUELA.values())
 
-# Base de datos temporal en memoria para rastrear el estado de cada fiscal
-# Estructura: { 'numero_telefono': { 'estado': 'MENU_PRINCIPAL', 'datos': {} } }
+def obtener_escuela_por_mesa(numero_mesa):
+    try:
+        mesa_int = int(numero_mesa)
+    except:
+        return None
+        
+    for escuela, lista_mesas in MESAS_POR_ESCUELA.items():
+        if mesa_int in lista_mesas:
+            return escuela
+            
+    return None
+
+# Máquina de estados en memoria para los fiscales
 estados_usuarios = {}
 
-# Archivo Excel por si se usa de respaldo (opcional)
-EXCEL_DB = "registro_votos_realtime.xlsx"
-
-# Crear el archivo Excel con sus columnas si no existe al arrancar el bot
-if not os.path.exists(EXCEL_DB):
-    df_init = pd.DataFrame(columns=["Fecha/Hora", "Telefono", "Tipo_Reporte", "Escuela_Mesa", "Corte_Horario", "Cantidad_Votos", "Observaciones", "Escuela"])
-    df_init.to_excel(EXCEL_DB, index=False)
-
-def guardar_en_excel(telefono, tipo, escuela_mesa="-", corte="-", votos="-", obs="-", escuela="-"):
+def guardar_en_postgres(telefono, tipo, escuela_mesa="-", corte="-", votos="-", obs="-", escuela="-"):
     """Inserta una nueva fila directamente en la base de datos PostgreSQL de Render"""
     if not DATABASE_URL:
         print("🔴 Error: DATABASE_URL no configurada. No se pudo guardar.")
@@ -118,14 +106,11 @@ def guardar_en_excel(telefono, tipo, escuela_mesa="-", corte="-", votos="-", obs
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
         
-        # Agregamos dinámicamente el manejo de columnas para 'escuela' y 'mesa'
-        # Usamos 'escuela_mesa' para guardar el número de mesa pura (así machea con tu webhook)
         query = """
             INSERT INTO reportes (fecha_hora, telefono, tipo_reporte, escuela_mesa, corte_horario, cantidad_votos, observaciones, escuela, mesa, votos)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
         """
         
-        # Intentamos formatear los votos como número entero para que sume bien en estadísticas
         try:
             votos_int = int(votos)
         except:
@@ -135,24 +120,23 @@ def guardar_en_excel(telefono, tipo, escuela_mesa="-", corte="-", votos="-", obs
             datetime.now(),
             telefono,
             tipo,
-            str(escuela_mesa), # Guarda el número original ingresado
+            str(escuela_mesa), 
             str(corte),
             str(votos),
             str(obs),
-            str(escuela),      # Guarda el nombre limpio de la escuela asignada
-            str(escuela_mesa), # Setea la columna 'mesa' para la consulta SQL de estadísticas
-            votos_int          # Setea la columna 'votos' numérico para el SUM() de estadísticas
+            str(escuela),      
+            str(escuela_mesa), 
+            votos_int          
         )
         
         cur.execute(query, valores)
         conn.commit()
         cur.close()
         conn.close()
-        print("🟢 Registro guardado correctamente en PostgreSQL.")
+        print("🟢 Registro guardado correctamente en PostgreSQL.", flush=True)
         
     except Exception as e:
-        print(f"🔴 Error al guardar en PostgreSQL: {e}")
-        # Al quitar el 'raise e' evitamos que el bot deje de responder si algo falla con la base de datos
+        print(f"🔴 Error al guardar en PostgreSQL: {e}", flush=True)
 
 
 @app.route("/webhook", methods=["POST"])
@@ -161,7 +145,6 @@ def webhook():
         telefono = request.values.get("From", "")
         mensaje_recibido = request.values.get("Body", "").strip().lower()
         
-        # Le agregamos flush=True a los prints para que Render los muestre obligatoriamente al instante
         print(f"📥 MENSAJE RECIBIDO - Teléfono: {telefono} | Mensaje: {mensaje_recibido}", flush=True)
         
         response = MessagingResponse()
@@ -176,13 +159,11 @@ def webhook():
             )
             response.message(msg)
             print("📤 Respondiendo con Menú Principal", flush=True)
-            # ACÁ ESTÁ LA MAGIA: Forzamos a que la respuesta sea estrictamente XML
             return Response(str(response), mimetype='text/xml')
 
         estado_actual = estados_usuarios[telefono]["estado"]
         print(f"🔄 Estado actual: {estado_actual}", flush=True)
 
-        # --- LÓGICA DE LA MÁQUINA DE ESTADOS ---
         if estado_actual == "MENU_PRINCIPAL":
             if mensaje_recibido == "1":
                 estados_usuarios[telefono]["estado"] = "SELECCION_HORARIO"
@@ -201,7 +182,7 @@ def webhook():
                 response.message("Opción inválida. Por favor, envía *1* o *2*.")
 
         elif estado_actual == "ESPERANDO_INCIDENTE":
-            guardar_en_excel(telefono=telefono, tipo="INCIDENTE", obs=request.values.get("Body"))
+            guardar_en_postgres(telefono=telefono, tipo="INCIDENTE", obs=request.values.get("Body"))
             estados_usuarios[telefono] = {"estado": "MENU_PRINCIPAL", "datos": {}}
             response.message("✅ Tu reporte ha sido enviado al centro de cómputos. Muchas gracias por informar. Si necesitas algo más, vuelve a escribir 'Hola'.")
 
@@ -242,7 +223,7 @@ def webhook():
                 
                 print(f"💾 Guardando votos. Mesa: {datos_fiscal['mesa']}, Escuela: {datos_fiscal['escuela']}, Votos: {votos}", flush=True)
                 
-                guardar_en_excel(
+                guardar_en_postgres(
                     telefono=telefono,
                     tipo="VOTOS_CORTE",
                     escuela_mesa=datos_fiscal["mesa"],
@@ -257,7 +238,6 @@ def webhook():
                 response.message("Por favor, introduce una cantidad válida usando solo números enteros (ej: 142).")
 
         print("📤 Enviando XML a Twilio...", flush=True)
-        # ACÁ ESTÁ LA OTRA MAGIA: Devolvemos siempre formato XML
         return Response(str(response), mimetype='text/xml')
 
     except Exception as e:
@@ -266,36 +246,50 @@ def webhook():
         error_response.message(f"Hubo un error interno en el bot: {e}")
         return Response(str(error_response), mimetype='text/xml')
 
+
 @app.route("/", methods=["GET"])
 @requires_auth
 def dashboard():
     reportes = []
     incidencias = []
     
-    # Leemos directamente desde la base de datos que usa tu bot
-    if os.path.exists(EXCEL_DB):
-        try:
-            df = pd.read_excel(EXCEL_DB)
-            df = df.fillna("")  # Limpiamos los vacíos
-            
-            # 1. Filtramos las filas que correspondan a reportes numéricos de votos
-            df_votos = df[df["Tipo_Reporte"] == "VOTOS_CORTE"]
-            # Seleccionamos solo las columnas relevantes para la tabla de votos
-            df_votos = df_votos[["Fecha/Hora", "Telefono", "Escuela_Mesa", "Corte_Horario", "Cantidad_Votos"]]
-            reportes = df_votos.to_dict(orient="records")
-            reportes.reverse()  # El más reciente arriba
+    # LEEMOS DIRECTAMENTE DESDE POSTGRESQL (No desde Excel)
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        
+        # 1. Obtener reportes de votos numéricos
+        cur.execute("""
+            SELECT fecha_hora, telefono, escuela, escuela_mesa, corte_horario, cantidad_votos 
+            FROM reportes 
+            WHERE tipo_reporte = 'VOTOS_CORTE'
+            ORDER BY fecha_hora DESC;
+        """)
+        columnas_votos = ["Fecha y Hora", "Teléfono", "Escuela", "Mesa", "Corte Horario", "Votos"]
+        for fila in cur.fetchall():
+            # Convertimos la fecha a string prolijo
+            fecha_str = fila[0].strftime("%d/%m/%Y %H:%M:%S") if fila[0] else ""
+            reportes.append(dict(zip(columnas_votos, [fecha_str, fila[1], fila[2], fila[3], fila[4], fila[5]])))
 
-            # 2. Filtramos las filas que correspondan a incidentes/avisos (Opción 2)
-            df_incidencias = df[df["Tipo_Reporte"] == "INCIDENTE"]
-            # Seleccionamos solo las columnas de interés para las alertas
-            df_incidencias = df_incidencias[["Fecha/Hora", "Telefono", "Observaciones"]]
-            incidencias = df_incidencias.to_dict(orient="records")
-            incidencias.reverse()  # El más reciente arriba
+        # 2. Obtener incidentes
+        cur.execute("""
+            SELECT fecha_hora, telefono, observaciones 
+            FROM reportes 
+            WHERE tipo_reporte = 'INCIDENTE'
+            ORDER BY fecha_hora DESC;
+        """)
+        columnas_incidencias = ["Fecha y Hora", "Teléfono / Fiscal", "Mensaje / Alerta"]
+        for fila in cur.fetchall():
+            fecha_str = fila[0].strftime("%d/%m/%Y %H:%M:%S") if fila[0] else ""
+            incidencias.append(dict(zip(columnas_incidencias, [fecha_str, fila[1], fila[2]])))
             
-        except Exception as e:
-            print(f"Error al procesar el Excel para el Dashboard: {e}")
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"🔴 Error al leer datos de PostgreSQL para el Dashboard: {e}", flush=True)
             
     return render_template("dashboard.html", reportes=reportes, incidencias=incidencias)
+
 
 # =========================================================
 # VISTA DE PORCENTAJES EN TIEMPO REAL
@@ -305,19 +299,17 @@ def dashboard():
 def mostrar_estadisticas():
     votos_actuales_escuela = {}
     
-    # Intentamos leer de la base de datos de forma segura
     try:
-        import psycopg2
-        conn = psycopg2.connect(os.environ.get("DATABASE_URL"))
+        conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
         
-        # Intentamos la consulta (si cambiaste los nombres de las columnas, adaptalos acá)
+        # Query optimizada para traer el último corte enviado por cada mesa
         query = """
             WITH ultimos_reportes AS (
                 SELECT DISTINCT ON (escuela, mesa) escuela, mesa, votos
                 FROM reportes
                 WHERE votos IS NOT NULL
-                ORDER BY escuela, mesa, timestamp DESC
+                ORDER BY escuela, mesa, fecha_hora DESC
             )
             SELECT escuela, SUM(votos) 
             FROM ultimos_reportes 
@@ -329,11 +321,8 @@ def mostrar_estadisticas():
         cur.close()
         conn.close()
     except Exception as e:
-        # Si la tabla no existe o las columnas son distintas, imprimimos el error en los logs
-        # pero dejamos que la página cargue igual con los datos en 0
         print(f"Nota: No se pudieron cargar datos de la DB ({e}). Mostrando gráfico en cero.")
 
-    # 3. Procesar datos para la tabla HTML usando tus escuelas modificadas
     tabla_escuelas = []
     total_votos_general = 0
     
@@ -421,23 +410,22 @@ def mostrar_estadisticas():
     )
 
 @app.route('/limpiar-datos', methods=['POST'])
+@requires_auth
 def limpiar_datos():
     try:
-        # Reemplaza 'votos' por el nombre exacto de tu tabla de reportes si es diferente
-        # Usamos TRUNCATE porque es la forma más rápida y limpia de vaciar una tabla
-        db.session.execute(text("TRUNCATE TABLE votos RESTART IDENTITY CASCADE;"))
-        db.session.commit()
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        # Vaciamos la tabla de reportes
+        cur.execute("TRUNCATE TABLE reportes RESTART IDENTITY CASCADE;")
+        conn.commit()
+        cur.close()
+        conn.close()
         return jsonify({"status": "success", "message": "Base de datos limpiada con éxito"}), 200
     except Exception as e:
-        db.session.rollback()
         return jsonify({"status": "error", "message": str(e)}), 500
 
-# El cierre clásico de tu archivo queda abajo de todo:
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
 
 if __name__ == "__main__":
     # Render asigna un puerto automáticamente en la variable de entorno PORT
     puerto = int(os.environ.get("PORT", 8080))
-    # Escuchamos en 0.0.0.0 para que Render pueda comunicarse con la app
     app.run(host="0.0.0.0", port=puerto)
