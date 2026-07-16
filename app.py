@@ -30,10 +30,6 @@ def migrar_base_de_datos_existente():
     except Exception as e:
         print(f"🔴 Error durante la migración de columnas: {e}")
 
-# Ejecutamos primero la migración y luego la inicialización común
-migrar_base_de_datos_existente()
-inicializar_base_de_datos()
-
 def inicializar_base_de_datos():
     """Crea la tabla de reportes en PostgreSQL si no existe con todas las columnas correctas"""
     if not DATABASE_URL:
@@ -64,7 +60,9 @@ def inicializar_base_de_datos():
     conn.close()
     print("🟢 Tabla de base de datos verificada/creada con éxito en PostgreSQL.")
 
-# Ejecutamos la inicialización al arrancar la app
+
+# --- EJECUCIÓN AL ARRANCAR (Ahora que ambas funciones ya están definidas) ---
+migrar_base_de_datos_existente()
 inicializar_base_de_datos()
 
 app = Flask(__name__)
