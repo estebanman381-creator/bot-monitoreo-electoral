@@ -6,6 +6,31 @@ from datetime import datetime
 import re
 from functools import wraps
 
+def migrar_base_de_datos_existente():
+    """Agrega las columnas faltantes a la tabla 'reportes' si ya existía de antes"""
+    if not DATABASE_URL:
+        return
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur = conn.cursor()
+        
+        # Agregamos las columnas una por una si no existen
+        cur.execute("""
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS escuela VARCHAR(255);
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS mesa VARCHAR(50);
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS votos INTEGER;
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("🟢 Migración completada: Columnas 'escuela', 'mesa' y 'votos' verificadas/agregadas.")
+    except Exception as e:
+        print(f"🔴 Error durante la migración de columnas: {e}")
+
+# Ejecutamos primero la migración y luego la inicialización común
+migrar_base_de_datos_existente()
+inicializar_base_de_datos()
+
 # --- CONFIGURACIÓN DE BASE DE DATOS ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
