@@ -276,7 +276,7 @@ def dashboard():
     reportes = []
     incidencias = []
     
-    # LEEMOS DIRECTAMENTE DESDE POSTGRESQL (No desde Excel)
+    # LEEMOS DIRECTAMENTE DESDE POSTGRESQL
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
@@ -290,7 +290,6 @@ def dashboard():
         """)
         columnas_votos = ["Fecha y Hora", "Teléfono", "Escuela", "Mesa", "Corte Horario", "Votos"]
         for fila in cur.fetchall():
-            # Convertimos la fecha a string prolijo
             fecha_str = fila[0].strftime("%d/%m/%Y %H:%M:%S") if fila[0] else ""
             reportes.append(dict(zip(columnas_votos, [fecha_str, fila[1], fila[2], fila[3], fila[4], fila[5]])))
 
@@ -315,7 +314,7 @@ def dashboard():
 
 
 # =========================================================
-# VISTA DE PORCENTAJES EN TIEMPO REAL
+# VISTA DE PORCENTAJES EN TIEMPO REAL (RECARGA AUTOMÁTICA CADA 10s)
 # =========================================================
 @app.route('/estadisticas')
 @requires_auth
@@ -369,11 +368,14 @@ def mostrar_estadisticas():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <!-- RECARGA AUTOMÁTICA CADA 10 SEGUNDOS -->
+        <meta http-equiv="refresh" content="10">
         <title>Monitoreo Electoral - Porcentajes de Participación</title>
         <style>
             body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f9; margin: 0; padding: 20px; color: #333; }
             .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-            h1 { text-align: center; color: #1e3a8a; margin-bottom: 30px; }
+            h1 { text-align: center; color: #1e3a8a; margin-bottom: 10px; }
+            .refresh-indicator { text-align: center; font-size: 0.85em; color: #6b7280; margin-bottom: 25px; }
             table { width: 100%; border-collapse: collapse; margin-top: 10px; }
             th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #ddd; }
             th { background-color: #1e3a8a; color: white; }
@@ -387,6 +389,7 @@ def mostrar_estadisticas():
     <body>
         <div class="container">
             <h1>📊 Participación Electoral en Tiempo Real</h1>
+            <div class="refresh-indicator">🔄 Se actualiza automáticamente cada 10 segundos</div>
             <table>
                 <thead>
                     <tr>
@@ -449,6 +452,5 @@ def limpiar_datos():
 
 
 if __name__ == "__main__":
-    # Render asigna un puerto automáticamente en la variable de entorno PORT
     puerto = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=puerto)
