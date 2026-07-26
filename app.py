@@ -86,11 +86,11 @@ def requires_auth(f):
 
 # 📊 CONFIGURACIÓN DEL PADRÓN ELECTORAL
 PADRON_POR_ESCUELA = {
-    "Escuela Patria": 3500,
-    "Escuela Centro": 2800,
-    "Escuela Nacional": 4200,
-    "Colegio San Ignacio": 1500,
-    "Colegio Virgen de Loreto": 3100
+    "Escuela Patria": 3087,
+    "Escuela Centro": 2744,
+    "Escuela Nacional": 2736,
+    "Colegio San Ignacio": 2736,
+    "Colegio Virgen de Loreto": 2736
 }
 
 # 🏫 ASIGNACIÓN DE MESAS POR ESCUELA
