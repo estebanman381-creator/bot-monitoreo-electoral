@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- RECARGA AUTOMÁTICA CADA 10 SEGUNDOS -->
+    <meta http-equiv="refresh" content="10">
     <title>Sistema de Monitoreo Electoral - Panel de Control</title>
     <style>
         body {
@@ -106,7 +108,7 @@
                 <span>📊 Panel de Monitoreo Electoral en Tiempo Real</span>
                 <div>
                     <button class="refresh-btn" style="background: white; color: #1e3a8a; font-weight: bold;" onclick="window.location.reload();">🔄 Actualizar Tablas</button>
-                    <!-- NUEZVO BOTÓN DE LIMPIEZA -->
+                    <!-- NUEVO BOTÓN DE LIMPIEZA -->
                     <button class="btn-danger" onclick="confirmarLimpieza()">⚠️ Limpiar Datos</button>
                 </div>
             </h1>
