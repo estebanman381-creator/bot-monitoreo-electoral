@@ -2,6 +2,8 @@ from flask import Flask, request, render_template, render_template_string, jsoni
 from twilio.twiml.messaging_response import MessagingResponse
 import os
 import psycopg2
+import cloudinary
+import cloudinary.uploader
 from datetime import datetime
 import re
 from functools import wraps
@@ -22,11 +24,12 @@ def migrar_base_de_datos_existente():
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS escuela VARCHAR(255);
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS mesa VARCHAR(50);
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS votos INTEGER;
+            ALTER TABLE reportes ADD COLUMN IF NOT EXISTS imagen_url TEXT;
         """)
         conn.commit()
         cur.close()
         conn.close()
-        print("🟢 Migración completada: Columnas 'escuela', 'mesa' y 'votos' verificadas/agregadas.")
+        print("🟢 Migración completada: Columnas 'escuela', 'mesa', 'votos' e 'imagen_url' verificadas/agregadas.")
     except Exception as e:
         print(f"🔴 Error durante la migración de columnas: {e}")
 
@@ -39,7 +42,7 @@ def inicializar_base_de_datos():
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
     
-    # Creamos la tabla asegurándonos de que 'escuela', 'mesa' y 'votos' existan
+    # Creamos la tabla asegurándonos de que todas las columnas existan
     cur.execute("""
         CREATE TABLE IF NOT EXISTS reportes (
             id SERIAL PRIMARY KEY,
@@ -52,7 +55,8 @@ def inicializar_base_de_datos():
             observaciones TEXT,
             escuela VARCHAR(255),
             mesa VARCHAR(50),
-            votos INTEGER
+            votos INTEGER,
+            imagen_url TEXT
         );
     """)
     conn.commit()
@@ -61,7 +65,7 @@ def inicializar_base_de_datos():
     print("🟢 Tabla de base de datos verificada/creada con éxito en PostgreSQL.")
 
 
-# --- EJECUCIÓN AL ARRANCAR (Ahora que ambas funciones ya están definidas) ---
+# --- EJECUCIÓN AL ARRANCAR ---
 migrar_base_de_datos_existente()
 inicializar_base_de_datos()
 
@@ -69,7 +73,6 @@ app = Flask(__name__)
 
 # --- CONTROL DE ACCESO (PASSWORD) ---
 def check_auth(username, password):
-    # Credenciales de acceso
     return username == 'admin' and password == 'ELEC26'
 
 def requires_auth(f):
@@ -119,7 +122,7 @@ def obtener_escuela_por_mesa(numero_mesa):
 # Máquina de estados en memoria para los fiscales
 estados_usuarios = {}
 
-def guardar_en_postgres(telefono, tipo, escuela_mesa="-", corte="-", votos="-", obs="-", escuela="-"):
+def guardar_en_postgres(telefono, tipo, escuela_mesa="-", corte="-", votos="-", obs="-", escuela="-", imagen_url=None):
     """Inserta una nueva fila directamente en la base de datos PostgreSQL de Render"""
     if not DATABASE_URL:
         print("🔴 Error: DATABASE_URL no configurada. No se pudo guardar.")
@@ -130,8 +133,8 @@ def guardar_en_postgres(telefono, tipo, escuela_mesa="-", corte="-", votos="-", 
         cur = conn.cursor()
         
         query = """
-            INSERT INTO reportes (fecha_hora, telefono, tipo_reporte, escuela_mesa, corte_horario, cantidad_votos, observaciones, escuela, mesa, votos)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+            INSERT INTO reportes (fecha_hora, telefono, tipo_reporte, escuela_mesa, corte_horario, cantidad_votos, observaciones, escuela, mesa, votos, imagen_url)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
         """
         
         try:
@@ -149,7 +152,8 @@ def guardar_en_postgres(telefono, tipo, escuela_mesa="-", corte="-", votos="-", 
             str(obs),
             str(escuela),      
             str(escuela_mesa), 
-            votos_int          
+            votos_int,
+            imagen_url
         )
         
         cur.execute(query, valores)
@@ -167,18 +171,49 @@ def webhook():
     try:
         telefono = request.values.get("From", "")
         mensaje_recibido = request.values.get("Body", "").strip().lower()
+        num_media = int(request.values.get("NumMedia", 0))
         
-        print(f"📥 MENSAJE RECIBIDO - Teléfono: {telefono} | Mensaje: {mensaje_recibido}", flush=True)
+        print(f"📥 MENSAJE RECIBIDO - Teléfono: {telefono} | Archivos: {num_media} | Mensaje: {mensaje_recibido}", flush=True)
         
         response = MessagingResponse()
         
+        # --- RECEPCIÓN DE FOTOS / ACTAS ---
+        if num_media > 0:
+            media_url_twilio = request.values.get("MediaUrl0")
+            url_cloudinary = None
+            
+            try:
+                # Subida automática a Cloudinary
+                upload_result = cloudinary.uploader.upload(
+                    media_url_twilio,
+                    folder="actas_electorales"
+                )
+                url_cloudinary = upload_result.get("secure_url")
+                print(f"📸 Imagen subida exitosamente a Cloudinary: {url_cloudinary}", flush=True)
+            except Exception as e:
+                print(f"🔴 Error al subir imagen a Cloudinary: {e}", flush=True)
+
+            texto_observacion = request.values.get("Body").strip() if request.values.get("Body") else "Foto de acta recibida"
+
+            guardar_en_postgres(
+                telefono=telefono,
+                tipo="ACTA / FOTO",
+                obs=texto_observacion,
+                imagen_url=url_cloudinary
+            )
+
+            response.message("📸 ¡Foto del acta recibida y guardada correctamente! Muchas gracias.")
+            return Response(str(response), mimetype='text/xml')
+
+        # --- MENÚ Y FLUJO DE TEXTO NORMAL ---
         if telefono not in estados_usuarios or mensaje_recibido in ["hola", "buen dia", "buenas", "inicio", "reinicio"]:
             estados_usuarios[telefono] = {"estado": "MENU_PRINCIPAL", "datos": {}}
             msg = (
                 "¡Hola! Bienvenido al Sistema de Monitoreo Electoral 🗳️.\n\n"
                 "Por favor, selecciona una opción enviando el número:\n"
                 "1️⃣ Votantes hasta el momento\n"
-                "2️⃣ Otro motivo (Reportar incidente / Aviso)"
+                "2️⃣ Otro motivo (Reportar incidente / Aviso)\n\n"
+                "📷 *Nota:* Podés enviar una foto de un acta o documento en cualquier momento."
             )
             response.message(msg)
             print("📤 Respondiendo con Menú Principal", flush=True)
@@ -293,17 +328,17 @@ def dashboard():
             fecha_str = fila[0].strftime("%d/%m/%Y %H:%M:%S") if fila[0] else ""
             reportes.append(dict(zip(columnas_votos, [fecha_str, fila[1], fila[2], fila[3], fila[4], fila[5]])))
 
-        # 2. Obtener incidentes
+        # 2. Obtener incidentes y fotos de actas
         cur.execute("""
-            SELECT fecha_hora, telefono, observaciones 
+            SELECT fecha_hora, telefono, observaciones, imagen_url 
             FROM reportes 
-            WHERE tipo_reporte = 'INCIDENTE'
+            WHERE tipo_reporte IN ('INCIDENTE', 'ACTA / FOTO')
             ORDER BY fecha_hora DESC;
         """)
-        columnas_incidencias = ["Fecha y Hora", "Teléfono / Fiscal", "Mensaje / Alerta"]
+        columnas_incidencias = ["Fecha y Hora", "Teléfono / Fiscal", "Mensaje / Alerta", "Imagen / Acta"]
         for fila in cur.fetchall():
             fecha_str = fila[0].strftime("%d/%m/%Y %H:%M:%S") if fila[0] else ""
-            incidencias.append(dict(zip(columnas_incidencias, [fecha_str, fila[1], fila[2]])))
+            incidencias.append(dict(zip(columnas_incidencias, [fecha_str, fila[1], fila[2], fila[3]])))
             
         cur.close()
         conn.close()
@@ -325,7 +360,6 @@ def mostrar_estadisticas():
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
         
-        # Query optimizada para traer el último corte enviado por cada mesa
         query = """
             WITH ultimos_reportes AS (
                 SELECT DISTINCT ON (escuela, mesa) escuela, mesa, votos
@@ -368,7 +402,6 @@ def mostrar_estadisticas():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <!-- RECARGA AUTOMÁTICA CADA 10 SEGUNDOS -->
         <meta http-equiv="refresh" content="10">
         <title>Monitoreo Electoral - Porcentajes de Participación</title>
         <style>
@@ -441,7 +474,6 @@ def limpiar_datos():
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
-        # Vaciamos la tabla de reportes
         cur.execute("TRUNCATE TABLE reportes RESTART IDENTITY CASCADE;")
         conn.commit()
         cur.close()

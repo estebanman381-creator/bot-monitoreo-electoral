@@ -98,6 +98,14 @@
         .btn-danger:hover {
             background-color: #bb2d3b;
         }
+        .link-acta {
+            color: #2563eb;
+            font-weight: bold;
+            text-decoration: none;
+        }
+        .link-acta:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -108,7 +116,7 @@
                 <span>📊 Panel de Monitoreo Electoral en Tiempo Real</span>
                 <div>
                     <button class="refresh-btn" style="background: white; color: #1e3a8a; font-weight: bold;" onclick="window.location.reload();">🔄 Actualizar Tablas</button>
-                    <!-- NUEVO BOTÓN DE LIMPIEZA -->
+                    <!-- BOTÓN DE LIMPIEZA -->
                     <button class="btn-danger" onclick="confirmarLimpieza()">⚠️ Limpiar Datos</button>
                 </div>
             </h1>
@@ -145,9 +153,9 @@
             </table>
         </div>
 
-        <!-- SECCIÓN 2: OTROS MOTIVOS / INCIDENCIAS -->
+        <!-- SECCIÓN 2: OTROS MOTIVOS / INCIDENCIAS Y FOTOS -->
         <div class="card">
-            <h2>⚠️ Avisos e Incidencias de Fiscales (Otro Motivo)</h2>
+            <h2>⚠️ Avisos, Incidencias y Actas Recibidas</h2>
             <table>
                 <thead>
                     <tr>
@@ -159,19 +167,30 @@
                             <th>Fecha y Hora</th>
                             <th>Fiscal / Teléfono</th>
                             <th>Mensaje / Alerta</th>
+                            <th>Imagen / Acta</th>
                         {% endif %}
                     </tr>
                 </thead>
                 <tbody>
                     {% for fila in incidencias %}
                     <tr>
-                        {% for valor in fila.values() %}
-                            <td>{{ valor }}</td>
+                        {% for clave, valor in fila.items() %}
+                            <td>
+                                {% if clave == "Imagen / Acta" and valor %}
+                                    <a href="{{ valor }}" target="_blank" class="link-acta">
+                                        🖼️ Ver Foto / Acta
+                                    </a>
+                                {% elif clave == "Imagen / Acta" %}
+                                    <span style="color: #9ca3af;">—</span>
+                                {% else %}
+                                    {{ valor }}
+                                {% endif %}
+                            </td>
                         {% endfor %}
                     </tr>
                     {% else %}
                     <tr>
-                        <td colspan="3" class="no-data">No hay alertas ni incidencias reportadas por el momento.</td>
+                        <td colspan="4" class="no-data">No hay alertas ni fotos de actas reportadas por el momento.</td>
                     </tr>
                     {% endfor %}
                 </tbody>
