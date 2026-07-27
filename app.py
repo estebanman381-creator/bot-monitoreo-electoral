@@ -8,6 +8,19 @@ from datetime import datetime
 import re
 from functools import wraps
 
+# --- CONFIGURACIÓN DE CLOUDINARY ---
+# Configuración explícita por variables individuales para evitar crashes en el inicio
+cloudinary.config(
+    cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.environ.get("CLOUDINARY_API_KEY"),
+    api_secret=os.environ.get("CLOUDINARY_API_SECRET"),
+    secure=True
+)
+
+# Credenciales de Twilio para permitir que Cloudinary descargue imágenes protegidas
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
+
 # --- CONFIGURACIÓN DE BASE DE DATOS ---
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
@@ -19,7 +32,6 @@ def migrar_base_de_datos_existente():
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
         
-        # Agregamos las columnas una por una si no existen
         cur.execute("""
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS escuela VARCHAR(255);
             ALTER TABLE reportes ADD COLUMN IF NOT EXISTS mesa VARCHAR(50);
@@ -42,7 +54,6 @@ def inicializar_base_de_datos():
     conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
     
-    # Creamos la tabla asegurándonos de que todas las columnas existan
     cur.execute("""
         CREATE TABLE IF NOT EXISTS reportes (
             id SERIAL PRIMARY KEY,
@@ -183,9 +194,18 @@ def webhook():
             url_cloudinary = None
             
             try:
+                # Inyectar credenciales de Twilio en la URL para permitir la descarga por parte de Cloudinary
+                if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and "twilio.com" in media_url_twilio:
+                    media_url_autenticada = media_url_twilio.replace(
+                        "https://",
+                        f"https://{TWILIO_ACCOUNT_SID}:{TWILIO_AUTH_TOKEN}@"
+                    )
+                else:
+                    media_url_autenticada = media_url_twilio
+
                 # Subida automática a Cloudinary
                 upload_result = cloudinary.uploader.upload(
-                    media_url_twilio,
+                    media_url_autenticada,
                     folder="actas_electorales"
                 )
                 url_cloudinary = upload_result.get("secure_url")
@@ -311,12 +331,10 @@ def dashboard():
     reportes = []
     incidencias = []
     
-    # LEEMOS DIRECTAMENTE DESDE POSTGRESQL
     try:
         conn = psycopg2.connect(DATABASE_URL)
         cur = conn.cursor()
         
-        # 1. Obtener reportes de votos numéricos
         cur.execute("""
             SELECT fecha_hora, telefono, escuela, escuela_mesa, corte_horario, cantidad_votos 
             FROM reportes 
@@ -328,7 +346,6 @@ def dashboard():
             fecha_str = fila[0].strftime("%d/%m/%Y %H:%M:%S") if fila[0] else ""
             reportes.append(dict(zip(columnas_votos, [fecha_str, fila[1], fila[2], fila[3], fila[4], fila[5]])))
 
-        # 2. Obtener incidentes y fotos de actas
         cur.execute("""
             SELECT fecha_hora, telefono, observaciones, imagen_url 
             FROM reportes 
@@ -348,9 +365,6 @@ def dashboard():
     return render_template("dashboard.html", reportes=reportes, incidencias=incidencias)
 
 
-# =========================================================
-# VISTA DE PORCENTAJES EN TIEMPO REAL (RECARGA AUTOMÁTICA CADA 10s)
-# =========================================================
 @app.route('/estadisticas')
 @requires_auth
 def mostrar_estadisticas():
